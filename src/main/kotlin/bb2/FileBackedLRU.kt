@@ -48,11 +48,13 @@ open class FileBackedLRU  {
     protected var freeMemory: Long = 0L
 
     protected var sizes = ArrayList<Long>()
-    protected var offHeaps = ArrayList<ContiguousMemoryInterface>()
+    protected var offHeaps = ArrayList<List<ContiguousMemoryInterface>>()
     protected var keepCount: Int = 0
     protected var keepMax = 20
     protected var filling = false
     protected var readTimes = ArrayList<Long>()
+
+    var isMultichannel = false
 
     @Volatile private var mFirstCall = true
 
@@ -108,8 +110,8 @@ open class FileBackedLRU  {
         }
 
         fileList.sort { lhs, rhs ->
-            val lhs_tp = lhs.substring(lhs.indexOf("_one-")+5, lhs.lastIndexOf("-")).toInt()
-            val rhs_tp = rhs.substring(rhs.indexOf("_one-")+5, rhs.lastIndexOf("-")).toInt()
+            val lhs_tp = lhs.substring(lhs.indexOf("-", lhs.lastIndexOf(File.separator))+1, lhs.lastIndexOf("-")).toInt()
+            val rhs_tp = rhs.substring(rhs.indexOf("-", rhs.lastIndexOf(File.separator))+1, rhs.lastIndexOf("-")).toInt()
 
             lhs_tp - rhs_tp
         }
@@ -129,12 +131,15 @@ open class FileBackedLRU  {
 
                 val reader: IHDF5Reader = HDF5Factory.openForReading( file )
                 readers.add(reader)
-
             }
         } catch (e: io.scif.FormatException) {
             e.printStackTrace()
         } catch (e: IOException) {
             e.printStackTrace()
+        }
+
+        if(readers[0].exists(datasetPath(0, 1, 1))) {
+            isMultichannel = true
         }
 
     }
@@ -152,13 +157,13 @@ open class FileBackedLRU  {
         filling = false
     }
 
-    fun getNextVolume(): ContiguousMemoryInterface {
+    fun getNextVolume(): List<ContiguousMemoryInterface> {
         System.err.println("Offheap Count is ${offHeaps.size}")
         return offHeaps.last()
     }
 
     fun popLastVolume() {
-        offHeaps[0].free()
+        offHeaps[0].forEach { it.free() }
         offHeaps.removeAt(0)
     }
 
@@ -170,35 +175,52 @@ open class FileBackedLRU  {
         }
     }
 
-    protected fun queryNextVolume(): ContiguousMemoryInterface {
-        val start = System.currentTimeMillis()
+    protected fun datasetPath(readerIndex: Int, channel: Int, scaling: Int): String {
+       return "t${String.format("%05d", readerIndex)}/s${String.format("%02d", channel)}/$scaling/cells"
+    }
+
+    protected fun queryNextVolume(): List<ContiguousMemoryInterface> {
+        var start = 0L
         val reader = readers.get(mCurrentReaderIndex)
+        var channels = (0..0)
+        val buffers = ArrayList<ContiguousMemoryInterface>()
 
-        val datasetPath = "t${String.format("%05d", mCurrentReaderIndex)}/s00/1/cells"
-        mResolutionX = reader.getDataSetInformation(datasetPath).dimensions[0].toInt()
-        mResolutionY = reader.getDataSetInformation(datasetPath).dimensions[1].toInt()
-        mResolutionZ = reader.getDataSetInformation(datasetPath).dimensions[2].toInt()
-
-        val block: MDShortArray = reader.int16().readMDArrayBlockWithOffset("t${String.format("%05d", mCurrentReaderIndex)}/s00/1/cells" , intArrayOf(mResolutionZ, mResolutionY, mResolutionX), longArrayOf(0, 0, 0));
-
-        val lBuffer: ContiguousMemoryInterface = OffHeapMemory.allocateBytes(mResolutionX*mResolutionY*mResolutionZ.toLong()*2)
-        val lContiguousBuffer = ContiguousBuffer(lBuffer)
-
-        (0..block.size()-1).forEach {
-            lContiguousBuffer.writeShort(block.get(it))
+        if(isMultichannel) {
+            channels = (0..1)
         }
-        val end = System.currentTimeMillis()
-        System.err.println("R: ${reader.file().file.name} ${end-start} ms, ${(lBuffer.sizeInBytes/1024/1024)/((end-start)/1000.0f)} MiB/s")
 
-        readTimes.add(end-start)
+        channels.forEach { ch ->
+            start = System.currentTimeMillis()
+            val path = datasetPath(mCurrentReaderIndex, channel = ch, scaling = 1)
+            mResolutionX = reader.getDataSetInformation(path).dimensions[0].toInt()
+            mResolutionY = reader.getDataSetInformation(path).dimensions[1].toInt()
+            mResolutionZ = reader.getDataSetInformation(path).dimensions[2].toInt()
+
+            val block: MDShortArray = reader.int16().readMDArrayBlockWithOffset(path, intArrayOf(mResolutionZ, mResolutionY, mResolutionX), longArrayOf(0, 0, 0));
+
+            val lBuffer: ContiguousMemoryInterface = OffHeapMemory.allocateBytes(mResolutionX * mResolutionY * mResolutionZ.toLong() * 2)
+            val lContiguousBuffer = ContiguousBuffer(lBuffer)
+            var max: Short = 0
+
+            (0..block.size() - 1).forEach {
+                val b = block.get(it)
+                max = Math.max(b.toInt(), max.toInt()).toShort()
+                lContiguousBuffer.writeShort(block.get(it))
+            }
+            val end = System.currentTimeMillis()
+            System.err.println("R: ${reader.file().file.name} ch $ch ${end - start} ms, ${(lBuffer.sizeInBytes / 1024 / 1024) / ((end - start) / 1000.0f)} MiB/s, ${resolution.joinToString("x")} max: $max")
+
+            readTimes.add(end - start)
+
+            buffers.add(lBuffer)
+        }
 
         mCurrentReaderIndex++
         if(mCurrentReaderIndex > readers.size-1) {
             mCurrentReaderIndex = 0
         }
 
-        lContiguousBuffer.rewind()
-        return lBuffer
+        return buffers
     }
 
 }
