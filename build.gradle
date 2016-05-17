@@ -99,6 +99,7 @@ dependencies
     compile group: 'io.scif', name: 'pom-scifio', version: '10.0.0'
     compile group: 'io.scif', name: 'scifio', version: '0.27.2'
     compile 'cisd:jhdf5:14.12.5'
+	compile group: "net.coremem", name: "CoreMem", version: "(,1.0.0]", changing: true, transitive:true
 
     // usage: gradle .... -Plocal=true
 	if (project.hasProperty('local')) {
