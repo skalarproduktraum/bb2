@@ -101,17 +101,9 @@ dependencies
     compile 'cisd:jhdf5:14.12.5'
 	compile group: "net.coremem", name: "CoreMem", version: "(,1.0.0]", changing: true, transitive:true
 
-    // usage: gradle .... -Plocal=true
-	if (project.hasProperty('local')) {
-		println 'Using local clearX sources'
-		compile project(':ClearGL')
-	}
-	else {
-		println 'Using clearX from Maven repository'/**/
-		compile group: "net.clearvolume", name: "cleargl", version: "(,1.1.0]", changing: true, transitive: true
-       	compile group: "net.clearvolume", name: "clearvolume", version: "[1.1.0,)", changing: true, transitive: true
+	compile group: "net.clearvolume", name: "cleargl", version: "(,1.1.0]", changing: true, transitive: true
+    compile group: "net.clearvolume", name: "clearvolume", version: "[1.1.0,)", changing: true, transitive: true
 
-	}
 
 
 	compile group: 'junit', name: 'junit', version: '4.12'
@@ -128,6 +120,8 @@ repositories
     { url "http://maven.imagej.net/content/groups/public" }
     maven
     { url "http://dl.bintray.com/clearcontrol/ClearControl" }
+     maven
+    { url "http://dl.bintray.com/clearvolume/ClearVolume" }
     mavenLocal()
 }
 
