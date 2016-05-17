@@ -112,7 +112,7 @@ open class FileBackedLRU  {
                     && f.canRead()
                     && f.getName().toLowerCase().endsWith(".h5")) {
                 System.out.println("Found HDF5: " + f.getName())
-                fileList.add(f.getAbsolutePath())
+                fileList.add(f.getAbsolutePath().replace("\\", "\\\\"))
             }
         }
 
@@ -150,6 +150,12 @@ open class FileBackedLRU  {
         val reader = readers.get(mCurrentReaderIndex)
 
 //        val block: MDShortArray = reader.int16().readMDArray( "t${String.format("%05d", mCurrentReaderIndex)}/s00/1/cells" )
+        val datasetPath = "t${String.format("%05d", mCurrentReaderIndex)}/s00/1/cells"
+        System.out.println(reader.getDataSetInformation(datasetPath).dimensions.joinToString("x"))
+        mResolutionX = reader.getDataSetInformation(datasetPath).dimensions[0].toInt()
+        mResolutionY = reader.getDataSetInformation(datasetPath).dimensions[1].toInt()
+        mResolutionZ = reader.getDataSetInformation(datasetPath).dimensions[2].toInt()
+
         val block: MDShortArray = reader.int16().readMDArrayBlockWithOffset("t${String.format("%05d", mCurrentReaderIndex)}/s00/1/cells" , intArrayOf(mResolutionZ, mResolutionY, mResolutionX), longArrayOf(0, 0, 0));
 
         val lBuffer: ContiguousMemoryInterface = OffHeapMemory.allocateBytes(mResolutionX*mResolutionY*mResolutionZ.toLong()*2)

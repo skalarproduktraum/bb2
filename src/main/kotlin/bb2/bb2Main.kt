@@ -38,8 +38,7 @@ class bb2Main {
         val cache = FileBackedLRU()
         cache.use4DStacksFromDirectory(directory)
 
-        val res: FloatArray = cache.resolution
-        System.out.println("Resolution: ${res.joinToString("x")}")
+        var res: FloatArray
 
         lClearVolumeRenderer.setVoxelSize(1.0, 1.0, 1.0);
 
@@ -58,6 +57,7 @@ class bb2Main {
             while (lClearVolumeRenderer.isShowing()) {
                 val nextVolumeA = cache.queryNextVolume();
                 //val nextVolumeB = cache.queryNextVolume();
+                res = cache.resolution
 
                 lClearVolumeRenderer.setVolumeDataBuffer(0, nextVolumeA, res[0].toLong(), res[1].toLong(), res[2].toLong());
                 //lClearVolumeRenderer.setVolumeDataBuffer(1, nextVolumeB, res[0].toLong(), res[1].toLong(), res[2].toLong());
