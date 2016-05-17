@@ -45,6 +45,14 @@ open class FileBackedLRU  {
 
     protected var mVolumeDataArray: ByteBuffer? = null
     protected var mTranslatedVolumeDataArray: ByteBuffer? = null
+    protected var freeMemory: Long = 0L
+
+    protected var sizes = ArrayList<Long>()
+    protected var offHeaps = ArrayList<ContiguousMemoryInterface>()
+    protected var keepCount: Int = 0
+    protected var keepMax = 20
+    protected var filling = false
+    protected var readTimes = ArrayList<Long>()
 
     @Volatile private var mFirstCall = true
 
@@ -52,32 +60,13 @@ open class FileBackedLRU  {
 
     init {
         mSCIFIO = SCIFIO()
+
+        System.out.println("Memory status free/total ${Runtime.getRuntime().freeMemory()/1024.0f/1024.0f}/${Runtime.getRuntime().totalMemory()/1024.0f/1024.0f} on ${Runtime.getRuntime().availableProcessors()} processors")
+        freeMemory = Runtime.getRuntime().maxMemory();
     }
 
     val resolution: FloatArray
         get() = floatArrayOf(mResolutionX.toFloat(), mResolutionY.toFloat(), mResolutionZ.toFloat(), mTotalNumberOfTimePoints.toFloat())
-
-    fun moveStage(dX: Float, dY: Float, dZ: Float) {
-        System.out.format("Moving stage by dx=%g, dy=%g, dz=%g \n",
-                dX,
-                dY,
-                dZ)
-        mStageX += dX
-        mStageY += dY
-        mStageZ += dZ
-    }
-
-    private fun setCenterLock(pCenterX: Float,
-                              pCenterY: Float,
-                              pCenterZ: Float) {
-        System.out.format("Set center lock to x=%g, y=%g, z=%g \n",
-                pCenterX,
-                pCenterY,
-                pCenterZ)
-        mCenterLockX = pCenterX
-        mCenterLockY = pCenterY
-        mCenterLockZ = pCenterZ
-    }
 
     fun use4DStacksFromDirectory(pImagesDirectory: String?) {
         var pImagesDirectory = pImagesDirectory
@@ -111,19 +100,29 @@ open class FileBackedLRU  {
             if (f.exists() && f.isFile()
                     && f.canRead()
                     && f.getName().toLowerCase().endsWith(".h5")) {
-                System.out.println("Found HDF5: " + f.getName())
+                System.out.println("Found HDF5: ${f.getName()}, ${f.length()/1024.0f/1024.0f} MiB")
                 fileList.add(f.getAbsolutePath().replace("\\", "\\\\"))
+
+                sizes.add(f.length())
             }
         }
 
-//        tiffFiles.sort { lhs, rhs ->
-//            val lhs_tp = lhs.substring(lhs.indexOf("TP")+2, lhs.indexOf("_Ch")).toInt()
-//            val rhs_tp = rhs.substring(rhs.indexOf("TP")+2, rhs.indexOf("_Ch")).toInt()
-//
-//            lhs_tp - rhs_tp
-//        }
+        fileList.sort { lhs, rhs ->
+            val lhs_tp = lhs.substring(lhs.indexOf("_one-")+5, lhs.lastIndexOf("-")).toInt()
+            val rhs_tp = rhs.substring(rhs.indexOf("_one-")+5, rhs.lastIndexOf("-")).toInt()
+
+            lhs_tp - rhs_tp
+        }
 
         mTotalNumberOfTimePoints = fileList.size
+
+        val avg = sizes.reduce { lhs, rhs -> lhs + rhs }/mTotalNumberOfTimePoints
+
+        while(keepCount*avg <= freeMemory-1024*1024*500 && keepCount < keepMax) {
+            keepCount++
+        }
+
+        System.out.println("Will cache $keepCount volumes, based on available memory")
 
         try {
             for (file in fileList) {
@@ -138,20 +137,44 @@ open class FileBackedLRU  {
             e.printStackTrace()
         }
 
-        this.mResolutionX = 1241/2
-        this.mResolutionY = 1330/2
-        this.mResolutionZ = 1329/2
-
     }
 
+    fun fillCache() {
+        if(filling) {
+            return
+        }
+        filling = true
+        while(offHeaps.size < keepCount) {
+            System.out.println("OffHeaps size is ${offHeaps.size}, keepcount=$keepCount")
+            offHeaps.add(queryNextVolume())
+        }
 
-    fun queryNextVolume(): ContiguousMemoryInterface {
+        filling = false
+    }
+
+    fun getNextVolume(): ContiguousMemoryInterface {
+        System.err.println("Offheap Count is ${offHeaps.size}")
+        return offHeaps.last()
+    }
+
+    fun popLastVolume() {
+        offHeaps[0].free()
+        offHeaps.removeAt(0)
+    }
+
+    fun getSafeTransitionPeriod(): Long {
+        if(readTimes.size == 0) {
+            return 200
+        } else {
+            return readTimes.sum() / readTimes.size
+        }
+    }
+
+    protected fun queryNextVolume(): ContiguousMemoryInterface {
         val start = System.currentTimeMillis()
         val reader = readers.get(mCurrentReaderIndex)
 
-//        val block: MDShortArray = reader.int16().readMDArray( "t${String.format("%05d", mCurrentReaderIndex)}/s00/1/cells" )
         val datasetPath = "t${String.format("%05d", mCurrentReaderIndex)}/s00/1/cells"
-        System.out.println(reader.getDataSetInformation(datasetPath).dimensions.joinToString("x"))
         mResolutionX = reader.getDataSetInformation(datasetPath).dimensions[0].toInt()
         mResolutionY = reader.getDataSetInformation(datasetPath).dimensions[1].toInt()
         mResolutionZ = reader.getDataSetInformation(datasetPath).dimensions[2].toInt()
@@ -159,15 +182,15 @@ open class FileBackedLRU  {
         val block: MDShortArray = reader.int16().readMDArrayBlockWithOffset("t${String.format("%05d", mCurrentReaderIndex)}/s00/1/cells" , intArrayOf(mResolutionZ, mResolutionY, mResolutionX), longArrayOf(0, 0, 0));
 
         val lBuffer: ContiguousMemoryInterface = OffHeapMemory.allocateBytes(mResolutionX*mResolutionY*mResolutionZ.toLong()*2)
-        System.err.println("buffer size ${lBuffer.sizeInBytes}")//, ${block.dimensions().joinToString("x")}")
         val lContiguousBuffer = ContiguousBuffer(lBuffer)
 
-        System.err.println("Converting buffer...")
         (0..block.size()-1).forEach {
             lContiguousBuffer.writeShort(block.get(it))
         }
         val end = System.currentTimeMillis()
         System.err.println("R: ${reader.file().file.name} ${end-start} ms, ${(lBuffer.sizeInBytes/1024/1024)/((end-start)/1000.0f)} MiB/s")
+
+        readTimes.add(end-start)
 
         mCurrentReaderIndex++
         if(mCurrentReaderIndex > readers.size-1) {

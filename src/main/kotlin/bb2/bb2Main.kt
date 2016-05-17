@@ -17,7 +17,7 @@ class bb2Main {
     val offHeapStores = ArrayList<ContiguousMemoryInterface>()
 
     fun main() {
-        val directory = "/Volumes/watson/mpicbg/ExampleData/mette/005-Lyn-GFP_H2B_mCh-LZ1/"
+        val directory = null
         val lClearVolumeRenderer = ClearVolumeRendererFactory.newOpenCLRenderer("bb2 - $directory",
                 1024,
                 1024,
@@ -28,7 +28,7 @@ class bb2Main {
                 false);
 
 
-        lClearVolumeRenderer.setTransferFunction(0, TransferFunctions.getRainbowSolid())
+        lClearVolumeRenderer.setTransferFunction(0, TransferFunctions.getGreenGradient())
 //        lClearVolumeRenderer.setTransferFunction(1, TransferFunctions.getGreenGradient())
 
         lClearVolumeRenderer.setLayerVisible(0, true)
@@ -41,31 +41,31 @@ class bb2Main {
         var res: FloatArray
 
         lClearVolumeRenderer.setVoxelSize(1.0, 1.0, 1.0);
+        cache.fillCache()
 
         thread {
-            Thread.sleep(1000*10)
-
-            while(offHeapStores.isNotEmpty()) {
-                offHeapStores[0].free()
-                offHeapStores.remove(offHeapStores[0])
-                Thread.sleep(5*1000)
+            while(true) {
+                Thread.sleep(500)
+                cache.fillCache()
             }
         }
 
         try {
 
             while (lClearVolumeRenderer.isShowing()) {
-                val nextVolumeA = cache.queryNextVolume();
+                val nextVolumeA = cache.getNextVolume();
                 //val nextVolumeB = cache.queryNextVolume();
                 res = cache.resolution
 
                 lClearVolumeRenderer.setVolumeDataBuffer(0, nextVolumeA, res[0].toLong(), res[1].toLong(), res[2].toLong());
                 //lClearVolumeRenderer.setVolumeDataBuffer(1, nextVolumeB, res[0].toLong(), res[1].toLong(), res[2].toLong());
 
-                offHeapStores.add(nextVolumeA)
 
                 lClearVolumeRenderer.waitToFinishAllDataBufferCopy(2, TimeUnit.SECONDS)
                 lClearVolumeRenderer.requestDisplay();
+
+                Thread.sleep(cache.getSafeTransitionPeriod())
+                cache.popLastVolume()
             }
         } catch (e: Exception) {
             System.err.println("Exception during volume reading: ");
