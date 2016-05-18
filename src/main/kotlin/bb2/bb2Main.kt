@@ -1,13 +1,9 @@
 package bb2
 
-import clearvolume.renderer.factory.ClearVolumeRendererFactory
 import clearvolume.renderer.opencl.OpenCLVolumeRenderer
 import clearvolume.transferf.TransferFunction1D
 import clearvolume.transferf.TransferFunctions
-import coremem.ContiguousMemoryInterface
 import coremem.types.NativeTypeEnum
-import java.awt.Color
-import java.util.*
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
@@ -18,8 +14,9 @@ import kotlin.concurrent.thread
  */
 class bb2Main {
     fun main() {
-        val directory = "F:\\ExampleDatasets\\Mette\\005-Lyn-GFP_H2B_mCh-LZ1"
+//        val directory = "F:\\ExampleDatasets\\Mette\\005-Lyn-GFP_H2B_mCh-LZ1"
 //        val directory = "F:\\ExampleDatasets\\Akanksha"
+        val directory = "/Volumes/watson/mpicbg/ExampleData/mette/005-Lyn-GFP_H2B_mCh-LZ1/"
         val cache = FileBackedLRU()
         var res: FloatArray
         var channels = 1
@@ -65,7 +62,7 @@ class bb2Main {
 
         thread {
             while (true) {
-                Thread.sleep(500)
+                Thread.sleep(cache.getSafeTransitionPeriod())
                 cache.fillCache()
             }
         }

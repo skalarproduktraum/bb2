@@ -63,7 +63,7 @@ open class FileBackedLRU  {
     init {
         mSCIFIO = SCIFIO()
 
-        System.out.println("Memory status free/total ${Runtime.getRuntime().freeMemory()/1024.0f/1024.0f}/${Runtime.getRuntime().totalMemory()/1024.0f/1024.0f} on ${Runtime.getRuntime().availableProcessors()} processors")
+        System.out.println("Memory status free/total/max ${Runtime.getRuntime().freeMemory()/1024.0f/1024.0f}/${Runtime.getRuntime().totalMemory()/1024.0f/1024.0f}/${Runtime.getRuntime().maxMemory()/1024.0f/1024.0f} on ${Runtime.getRuntime().availableProcessors()} processors")
         freeMemory = Runtime.getRuntime().maxMemory();
     }
 
@@ -182,6 +182,7 @@ open class FileBackedLRU  {
     protected fun queryNextVolume(): List<ContiguousMemoryInterface> {
         var start = 0L
         val reader = readers.get(mCurrentReaderIndex)
+        val hack = HDF5AccessHack(reader)
         var channels = (0..0)
         val buffers = ArrayList<ContiguousMemoryInterface>()
 
@@ -192,11 +193,13 @@ open class FileBackedLRU  {
         channels.forEach { ch ->
             start = System.currentTimeMillis()
             val path = datasetPath(mCurrentReaderIndex, channel = ch, scaling = 1)
+            val hack = HDF5AccessHack(reader)
             mResolutionX = reader.getDataSetInformation(path).dimensions[0].toInt()
             mResolutionY = reader.getDataSetInformation(path).dimensions[1].toInt()
             mResolutionZ = reader.getDataSetInformation(path).dimensions[2].toInt()
 
             val block: MDShortArray = reader.int16().readMDArrayBlockWithOffset(path, intArrayOf(mResolutionZ, mResolutionY, mResolutionX), longArrayOf(0, 0, 0));
+//            val block: ShortArray = hack.readShortMDArrayBlockWithOffset(path, intArrayOf(mResolutionX, mResolutionY, mResolutionZ), longArrayOf(0, 0, 0));
 
             val lBuffer: ContiguousMemoryInterface = OffHeapMemory.allocateBytes(mResolutionX * mResolutionY * mResolutionZ.toLong() * 2)
             val lContiguousBuffer = ContiguousBuffer(lBuffer)
@@ -204,8 +207,8 @@ open class FileBackedLRU  {
 
             (0..block.size() - 1).forEach {
                 val b = block.get(it)
-                max = Math.max(b.toInt(), max.toInt()).toShort()
-                lContiguousBuffer.writeShort(block.get(it))
+                //max = Math.max(b.toInt(), max.toInt()).toShort()
+                lContiguousBuffer.writeShort(b)
             }
             val end = System.currentTimeMillis()
             System.err.println("R: ${reader.file().file.name} ch $ch ${end - start} ms, ${(lBuffer.sizeInBytes / 1024 / 1024) / ((end - start) / 1000.0f)} MiB/s, ${resolution.joinToString("x")} max: $max")
