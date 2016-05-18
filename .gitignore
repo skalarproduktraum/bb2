@@ -1,0 +1,6 @@
+hs_err*.log
+gradle/
+.gradle/
+.idea/
+build/
+.*.swp
