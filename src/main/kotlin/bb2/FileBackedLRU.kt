@@ -1,8 +1,10 @@
 package bb2
 
-import ch.systemsx.cisd.base.mdarray.MDShortArray
 import ch.systemsx.cisd.hdf5.HDF5Factory
 import ch.systemsx.cisd.hdf5.IHDF5Reader
+import ch.systemsx.cisd.hdf5.hdf5lib.H5P.H5Pcreate
+import ch.systemsx.cisd.hdf5.hdf5lib.H5P.H5Pset_cache
+import ch.systemsx.cisd.hdf5.hdf5lib.HDF5Constants
 import coremem.ContiguousMemoryInterface
 import coremem.buffers.ContiguousBuffer
 import coremem.offheap.OffHeapMemory
@@ -128,6 +130,8 @@ open class FileBackedLRU  {
 
         try {
             for (file in fileList) {
+                val fapl = H5Pcreate(HDF5Constants.H5P_FILE_ACCESS)
+                H5Pset_cache(fapl, 0, 16, 32*1024*1024, 1.0)
 
                 val reader: IHDF5Reader = HDF5Factory.openForReading( file )
                 readers.add(reader)
@@ -193,24 +197,24 @@ open class FileBackedLRU  {
         channels.forEach { ch ->
             start = System.currentTimeMillis()
             val path = datasetPath(mCurrentReaderIndex, channel = ch, scaling = 1)
-            val hack = HDF5AccessHack(reader)
-            mResolutionX = reader.getDataSetInformation(path).dimensions[0].toInt()
+            val hack = HDF5AccessHack(reader, cacheSize = 128)
+            mResolutionZ = reader.getDataSetInformation(path).dimensions[0].toInt()
             mResolutionY = reader.getDataSetInformation(path).dimensions[1].toInt()
-            mResolutionZ = reader.getDataSetInformation(path).dimensions[2].toInt()
+            mResolutionX = reader.getDataSetInformation(path).dimensions[2].toInt()
 
-            val block: MDShortArray = reader.int16().readMDArrayBlockWithOffset(path, intArrayOf(mResolutionZ, mResolutionY, mResolutionX), longArrayOf(0, 0, 0));
-//            val block: ShortArray = hack.readShortMDArrayBlockWithOffset(path, intArrayOf(mResolutionX, mResolutionY, mResolutionZ), longArrayOf(0, 0, 0));
+//            val block: MDShortArray = reader.int16().readMDArray(path);
+            val block: ShortArray = hack.readShortMDArrayBlock(reader.file().file.absolutePath, path, intArrayOf(mResolutionX, mResolutionY, mResolutionZ))
 
             val lBuffer: ContiguousMemoryInterface = OffHeapMemory.allocateBytes(mResolutionX * mResolutionY * mResolutionZ.toLong() * 2)
             val lContiguousBuffer = ContiguousBuffer(lBuffer)
             var max: Short = 0
 
-            (0..block.size() - 1).forEach {
+            val end = System.currentTimeMillis()
+            (0..block.size - 1).forEach {
                 val b = block.get(it)
                 //max = Math.max(b.toInt(), max.toInt()).toShort()
                 lContiguousBuffer.writeShort(b)
             }
-            val end = System.currentTimeMillis()
             System.err.println("R: ${reader.file().file.name} ch $ch ${end - start} ms, ${(lBuffer.sizeInBytes / 1024 / 1024) / ((end - start) / 1000.0f)} MiB/s, ${resolution.joinToString("x")} max: $max")
 
             readTimes.add(end - start)

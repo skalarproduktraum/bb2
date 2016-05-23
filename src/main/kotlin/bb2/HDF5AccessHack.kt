@@ -30,6 +30,9 @@ package bb2
 
 import ch.systemsx.cisd.hdf5.IHDF5Reader
 import ch.systemsx.cisd.hdf5.hdf5lib.H5D.*
+import ch.systemsx.cisd.hdf5.hdf5lib.H5F.H5Fclose
+import ch.systemsx.cisd.hdf5.hdf5lib.H5F.H5Fopen
+import ch.systemsx.cisd.hdf5.hdf5lib.H5P
 import ch.systemsx.cisd.hdf5.hdf5lib.H5S.*
 import ch.systemsx.cisd.hdf5.hdf5lib.HDF5Constants.*
 import java.util.*
@@ -45,9 +48,7 @@ import java.util.*
  * @author Tobias Pietzsch &lt;tobias.pietzsch@gmail.com&gt;
  */
 class HDF5AccessHack @Throws(ClassNotFoundException::class, SecurityException::class, NoSuchFieldException::class, IllegalArgumentException::class, IllegalAccessException::class)
-constructor(private val hdf5Reader: IHDF5Reader) {
-
-    private val fileId: Int
+constructor(private val hdf5Reader: IHDF5Reader, private val cacheSize: Int = 32) {
 
     private val numericConversionXferPropertyListID: Int
 
@@ -55,12 +56,18 @@ constructor(private val hdf5Reader: IHDF5Reader) {
 
     private val reorderedMin = LongArray(3)
 
-    private inner class OpenDataSet(cellsPath: String) {
+    private inner class OpenDataSet(filePath: String, cellsPath: String) {
         internal val dataSetId: Int
+        internal val fileId: Int
 
         internal val fileSpaceId: Int
+        internal val fapl: Int
 
         init {
+            fapl = H5P.H5Pcreate(H5P_FILE_ACCESS)
+            H5P.H5Pset_cache(fapl, 0, cacheSize, cacheSize * 1024 * 1024, 1.0)
+
+            fileId = H5Fopen(filePath, H5F_ACC_RDONLY, fapl)
             dataSetId = H5Dopen(fileId, cellsPath, H5P_DEFAULT)
             fileSpaceId = H5Dget_space(dataSetId)
         }
@@ -68,6 +75,7 @@ constructor(private val hdf5Reader: IHDF5Reader) {
         fun close() {
             H5Sclose(fileSpaceId)
             H5Dclose(dataSetId)
+            H5Fclose(fileId)
         }
     }
 
@@ -81,10 +89,10 @@ constructor(private val hdf5Reader: IHDF5Reader) {
                 return false
         }*/
 
-        fun getDataSet(path: String): OpenDataSet {
+        fun getDataSet(file: String, path: String): OpenDataSet {
             var openDataSet: OpenDataSet? = super.get(path)
             if (openDataSet == null) {
-                openDataSet = OpenDataSet(path)
+                openDataSet = OpenDataSet(file, path)
                 put(path, openDataSet)
             }
             return openDataSet
@@ -103,7 +111,7 @@ constructor(private val hdf5Reader: IHDF5Reader) {
         val k2 = Class.forName("ch.systemsx.cisd.hdf5.HDF5BaseReader")
         val f2 = k2.getDeclaredField("fileId")
         f2.isAccessible = true
-        fileId = (f2.get(baseReader) as Int).toInt()
+        //fileId = (f2.get(baseReader) as Int).toInt()
 
         val f3 = k2.getDeclaredField("h5")
         f3.isAccessible = true
@@ -118,14 +126,14 @@ constructor(private val hdf5Reader: IHDF5Reader) {
     }
 
     @Synchronized @Throws(InterruptedException::class)
-    fun readShortMDArrayBlockWithOffset(path: String, dimensions: IntArray, min: LongArray): ShortArray {
+    fun readShortMDArrayBlockWithOffset(file: String, path: String, dimensions: IntArray, min: LongArray): ShortArray {
         val dataBlock = ShortArray(dimensions[0] * dimensions[1] * dimensions[2])
-        readShortMDArrayBlockWithOffset(path, dimensions, min, dataBlock)
+        readShortMDArrayBlockWithOffset(file, path, dimensions, min, dataBlock)
         return dataBlock
     }
 
     @Synchronized @Throws(InterruptedException::class)
-    fun readShortMDArrayBlockWithOffset(path: String, dimensions: IntArray, min: LongArray, dataBlock: ShortArray): ShortArray {
+    fun readShortMDArrayBlockWithOffset(file: String, path: String, dimensions: IntArray, min: LongArray, dataBlock: ShortArray): ShortArray {
         if (Thread.interrupted())
             throw InterruptedException()
 
@@ -137,7 +145,7 @@ constructor(private val hdf5Reader: IHDF5Reader) {
         reorderedMin[1] = min[1]
         reorderedMin[2] = min[2]
 
-        val dataset = openDataSetCache.getDataSet(path)
+        val dataset = openDataSetCache.getDataSet(file, path)
         val memorySpaceId = H5Screate_simple(reorderedDimensions.size, reorderedDimensions, null)
         H5Sselect_hyperslab(dataset.fileSpaceId, H5S_SELECT_SET, reorderedMin, null, reorderedDimensions, null)
         H5Dread(dataset.dataSetId, H5T_NATIVE_INT16, 0, dataset.fileSpaceId, numericConversionXferPropertyListID, dataBlock)
@@ -146,15 +154,40 @@ constructor(private val hdf5Reader: IHDF5Reader) {
         return dataBlock
     }
 
-    @Throws(InterruptedException::class)
-    fun readShortMDArrayBlockWithOffsetAsFloat(path: String, dimensions: IntArray, min: LongArray): FloatArray {
-        val dataBlock = FloatArray(dimensions[0] * dimensions[1] * dimensions[2])
-        readShortMDArrayBlockWithOffsetAsFloat(path, dimensions, min, dataBlock)
+    @Synchronized @Throws(InterruptedException::class)
+    fun readShortMDArrayBlock(file: String, path: String, dimensions: IntArray): ShortArray {
+        val dataBlock = ShortArray(dimensions[0] * dimensions[1] * dimensions[2])
+        readShortMDArrayBlock(file, path, dimensions, dataBlock)
+        return dataBlock
+    }
+
+    @Synchronized @Throws(InterruptedException::class)
+    fun readShortMDArrayBlock(file: String, path: String, dimensions: IntArray, dataBlock: ShortArray): ShortArray {
+        if (Thread.interrupted())
+            throw InterruptedException()
+
+        reorderedDimensions[0] = dimensions[0].toLong()
+        reorderedDimensions[1] = dimensions[1].toLong()
+        reorderedDimensions[2] = dimensions[2].toLong()
+
+        val dataset = openDataSetCache.getDataSet(file, path)
+//        val memorySpaceId = H5Screate_simple(reorderedDimensions.size, reorderedDimensions, null)
+        //H5Sselect_hyperslab(dataset.fileSpaceId, H5S_SELECT_SET, reorderedMin, null, reorderedDimensions, null)
+        H5Dread(dataset.dataSetId, H5T_NATIVE_INT16, 0, 0, 0, dataBlock)
+//        H5Sclose(memorySpaceId)
+
         return dataBlock
     }
 
     @Throws(InterruptedException::class)
-    fun readShortMDArrayBlockWithOffsetAsFloat(path: String, dimensions: IntArray, min: LongArray, dataBlock: FloatArray): FloatArray {
+    fun readShortMDArrayBlockWithOffsetAsFloat(file: String, path: String, dimensions: IntArray, min: LongArray): FloatArray {
+        val dataBlock = FloatArray(dimensions[0] * dimensions[1] * dimensions[2])
+        readShortMDArrayBlockWithOffsetAsFloat(file, path, dimensions, min, dataBlock)
+        return dataBlock
+    }
+
+    @Throws(InterruptedException::class)
+    fun readShortMDArrayBlockWithOffsetAsFloat(file: String, path: String, dimensions: IntArray, min: LongArray, dataBlock: FloatArray): FloatArray {
         if (Thread.interrupted())
             throw InterruptedException()
 
@@ -166,7 +199,7 @@ constructor(private val hdf5Reader: IHDF5Reader) {
         reorderedMin[1] = 0L
         reorderedMin[2] = 0L
 
-        val dataset = openDataSetCache.getDataSet(path)
+        val dataset = openDataSetCache.getDataSet(file, path)
         val memorySpaceId = H5Screate_simple(reorderedDimensions.size, reorderedDimensions, null)
         H5Sselect_hyperslab(dataset.fileSpaceId, H5S_SELECT_SET, reorderedMin, null, reorderedDimensions, null)
         H5Dread(dataset.dataSetId, H5T_NATIVE_FLOAT, memorySpaceId, dataset.fileSpaceId, numericConversionXferPropertyListID, dataBlock)

@@ -16,7 +16,7 @@ class bb2Main {
     fun main() {
 //        val directory = "F:\\ExampleDatasets\\Mette\\005-Lyn-GFP_H2B_mCh-LZ1"
 //        val directory = "F:\\ExampleDatasets\\Akanksha"
-        val directory = "/Volumes/watson/mpicbg/ExampleData/mette/005-Lyn-GFP_H2B_mCh-LZ1/"
+        val directory = "/Volumes/watson/mpicbg/ExampleData/mette/005-Lyn-GFP_H2B_mCh-LZ1"
         val cache = FileBackedLRU()
         var res: FloatArray
         var channels = 1
