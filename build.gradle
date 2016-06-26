@@ -101,8 +101,17 @@ dependencies
     compile 'cisd:jhdf5:14.12.5'
 	compile group: "net.coremem", name: "CoreMem", version: "(,1.0.0]", changing: true, transitive:true
 
-	compile group: "net.clearvolume", name: "cleargl", version: "(,1.1.0]", changing: true, transitive: true
-    compile group: "net.clearvolume", name: "clearvolume", version: "[1.1.0,)", changing: true, transitive: true
+	// usage: gradle .... -Plocal=true
+	if (project.hasProperty('local')) {
+		println 'Using local clearX sources'
+        compile project(':ClearGL')
+        compile project(':ClearVolume')
+        compile project(':scenery')
+	}
+	else {
+    	compile group: "net.clearvolume", name: "cleargl", version: "(,1.1.0]", changing: true, transitive: true
+        compile group: "net.clearvolume", name: "clearvolume", version: "[1.1.0,)", changing: true, transitive: true
+    }
 
 
 
