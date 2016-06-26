@@ -1,9 +1,10 @@
 package bb2
 
-import clearvolume.renderer.opencl.OpenCLVolumeRenderer
+import clearvolume.renderer.factory.ClearVolumeRendererFactory
 import clearvolume.transferf.TransferFunction1D
 import clearvolume.transferf.TransferFunctions
 import coremem.types.NativeTypeEnum
+import java.awt.Color
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
@@ -13,11 +14,11 @@ import kotlin.concurrent.thread
  * @author Ulrik Günther <hello@ulrik.is>
  */
 class bb2Main {
-    fun main() {
+    fun main(single: Boolean = false, max: Int = 20) {
 //        val directory = "F:\\ExampleDatasets\\Mette\\005-Lyn-GFP_H2B_mCh-LZ1"
 //        val directory = "F:\\ExampleDatasets\\Akanksha"
-        val directory = "/Volumes/watson/mpicbg/ExampleData/mette/005-Lyn-GFP_H2B_mCh-LZ1"
-        val cache = FileBackedLRU()
+        val directory = "/Volumes/watson/mpicbg/ExampleData/mette/005-Lyn-GFP_H2B_mCh-LZ1/repack"
+        val cache = FileBackedLRU(max)
         var res: FloatArray
         var channels = 1
 
@@ -26,7 +27,7 @@ class bb2Main {
             channels = 2
         }
 
-        val lClearVolumeRenderer = OpenCLVolumeRenderer("bb2 - $directory",
+        val lClearVolumeRenderer = ClearVolumeRendererFactory.newBestRenderer("bb2 - $directory",
                 1024,
                 1024,
                 NativeTypeEnum.UnsignedShort,
@@ -34,6 +35,8 @@ class bb2Main {
                 1024,
                 channels,
                 false);
+
+        System.err.println("Got $lClearVolumeRenderer")
 
         lClearVolumeRenderer.setVisible(true)
 
@@ -47,9 +50,10 @@ class bb2Main {
         lClearVolumeRenderer.setVoxelSize(1.0, 1.0, 1.0)
 
         lClearVolumeRenderer.setTransferFunction(0, TransferFunctions.getGreenGradient())
+        lClearVolumeRenderer.clipBox = floatArrayOf(-0.82f, 0.82f, -0.82f, 0.82f, -0.82f, 0.82f)
 
         if (cache.isMultichannel) {
-            lClearVolumeRenderer.setTransferFunction(1, beadEater)
+            lClearVolumeRenderer.setTransferFunction(1, TransferFunctions.getGradientForColor(Color.MAGENTA))
             lClearVolumeRenderer.setLayerVisible(0, true)
             lClearVolumeRenderer.setLayerVisible(1, true)
             lClearVolumeRenderer.setTransferFunctionRangeMax(1, 5000.0)
@@ -68,17 +72,21 @@ class bb2Main {
         }
 
         try {
+            var nextVolume = cache.getNextVolume()
 
             while (lClearVolumeRenderer.isShowing()) {
-                val nextVolume = cache.getNextVolume();
+                if(max > 1) {
+                    nextVolume = cache.getNextVolume();
+                }
                 //val nextVolumeB = cache.queryNextVolume();
                 res = cache.resolution
-
 
                 lClearVolumeRenderer.isVolumeDataUpdateAllowed = false
                 if(cache.isMultichannel) {
                     lClearVolumeRenderer.setVolumeDataBuffer(0, TimeUnit.SECONDS, 0, nextVolume[0], res[0].toLong(), res[1].toLong(), res[2].toLong());
-                    lClearVolumeRenderer.setVolumeDataBuffer(0, TimeUnit.SECONDS, 1, nextVolume[1], res[0].toLong(), res[1].toLong(), res[2].toLong());
+                    if(!single) {
+                        lClearVolumeRenderer.setVolumeDataBuffer(0, TimeUnit.SECONDS, 1, nextVolume[1], res[0].toLong(), res[1].toLong(), res[2].toLong());
+                    }
                 } else {
                     lClearVolumeRenderer.setVolumeDataBuffer(0, TimeUnit.SECONDS, 0, nextVolume[0], res[0].toLong(), res[1].toLong(), res[2].toLong());
                 }
@@ -89,7 +97,8 @@ class bb2Main {
 
                 System.out.println("STP=${cache.getSafeTransitionPeriod()}")
                 Thread.sleep(cache.getSafeTransitionPeriod()*channels)
-                cache.popLastVolume()
+
+                if(!single && max > 1) cache.popLastVolume()
             }
         } catch (e: Exception) {
             System.err.println("Exception during volume reading: ");

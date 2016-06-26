@@ -21,7 +21,7 @@ import javax.swing.JFileChooser
  * @author Ulrik Günther @ulrik.is>
  */
 
-open class FileBackedLRU  {
+open class FileBackedLRU(public var keepMax: Int = 20)  {
     private val mDriftAmplitude = 0.5
 
     protected val mSCIFIO: SCIFIO
@@ -52,7 +52,6 @@ open class FileBackedLRU  {
     protected var sizes = ArrayList<Long>()
     protected var offHeaps = ArrayList<List<ContiguousMemoryInterface>>()
     protected var keepCount: Int = 0
-    protected var keepMax = 20
     protected var filling = false
     protected var readTimes = ArrayList<Long>()
 
@@ -123,10 +122,10 @@ open class FileBackedLRU  {
         val avg = sizes.reduce { lhs, rhs -> lhs + rhs }/mTotalNumberOfTimePoints
 
         while(keepCount*avg <= freeMemory-1024*1024*500 && keepCount < keepMax) {
-            keepCount++
+            keepCount = keepCount + 4
         }
 
-        System.out.println("Will cache $keepCount volumes, based on available memory")
+        System.out.println("Will cache $keepCount volumes, based on available memory ($freeMemory)")
 
         try {
             for (file in fileList) {
@@ -175,7 +174,7 @@ open class FileBackedLRU  {
         if(readTimes.size == 0) {
             return 200
         } else {
-            return readTimes.sum() / readTimes.size
+            return 2*readTimes.sum() / readTimes.size
         }
     }
 
@@ -186,7 +185,6 @@ open class FileBackedLRU  {
     protected fun queryNextVolume(): List<ContiguousMemoryInterface> {
         var start = 0L
         val reader = readers.get(mCurrentReaderIndex)
-        val hack = HDF5AccessHack(reader)
         var channels = (0..0)
         val buffers = ArrayList<ContiguousMemoryInterface>()
 
@@ -196,7 +194,7 @@ open class FileBackedLRU  {
 
         channels.forEach { ch ->
             start = System.currentTimeMillis()
-            val path = datasetPath(mCurrentReaderIndex, channel = ch, scaling = 1)
+            val path = datasetPath(mCurrentReaderIndex, channel = ch, scaling = 2)
             val hack = HDF5AccessHack(reader, cacheSize = 128)
             mResolutionZ = reader.getDataSetInformation(path).dimensions[0].toInt()
             mResolutionY = reader.getDataSetInformation(path).dimensions[1].toInt()

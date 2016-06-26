@@ -15,4 +15,18 @@ class bb2Test {
 
         bb.main()
     }
+
+    @Test
+    fun testBB2SingleTimepoint() {
+        val bb = bb2Main()
+
+        bb.main(single = false, max = 1)
+    }
+
+    @Test
+    fun testBB2SingleChannelSingleTimepoint() {
+        val bb = bb2Main()
+
+        bb.main(single = true, max = 1)
+    }
 }
